@@ -5,7 +5,7 @@
  *  BYD — main (Electron) process — Ubuntu 24.04 LTS
  * ============================================================================
  *  Responsibilities:
- *    - createWindow()                  -> the single 520x420 dark window
+ *    - createWindow()                  -> the single 1100x760 dark window
  *    - ipcMain.handle('git-pull')      -> runs `git pull <remote> <branch>`
  *                                         with the system `git` binary and
  *                                         streams live output to the renderer
@@ -35,10 +35,10 @@ const config = require('./config');
 const pkg = require('./package.json');
 
 /* ------------------------------------------------------------------ *
- *  Window / UI constants (spec: 520x420, non-resizable, centred)
+ *  Window / UI constants (spec: 1100x760, resizable, centred, opens maximised)
  * ------------------------------------------------------------------ */
-const WINDOW_WIDTH = 520;
-const WINDOW_HEIGHT = 420;
+const WINDOW_WIDTH = 1100; // the Apple-inspired chrome (rail + topbar + settings) needs desktop width
+const WINDOW_HEIGHT = 760;
 const BACKGROUND_COLOR = '#0B0C0F';
 const APP_TITLE = 'BYD';
 const RELAUNCH_DELAY_MS = 150; // let the IPC reply reach the renderer first

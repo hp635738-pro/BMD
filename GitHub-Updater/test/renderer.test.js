@@ -22,7 +22,7 @@ function makeRenderer({ info = { version: '1.0.0', repoPath: 'C:\\HPOS', remote:
   const dom = new JSDOM(HTML, { runScripts: 'outside-only', url: 'http://localhost/' });
   const win = dom.window;
 
-  const calls = { pull: 0, restart: 0 };
+  const calls = { pull: 0, restart: 0, choose: 0 };
   let resolvePull = null;
   const outputSubs = [];
   const stateSubs = [];
@@ -37,6 +37,10 @@ function makeRenderer({ info = { version: '1.0.0', repoPath: 'C:\\HPOS', remote:
     restart: () => {
       calls.restart += 1;
       return Promise.resolve({ ok: true, relaunching: true });
+    },
+    chooseRepository: () => {
+      calls.choose += 1;
+      return Promise.resolve({ ok: true, repoPath: '/home/user/BYD', reloading: false });
     },
     getInfo: () => Promise.resolve(info),
     onOutput: (cb) => {
@@ -56,6 +60,7 @@ function makeRenderer({ info = { version: '1.0.0', repoPath: 'C:\\HPOS', remote:
     win,
     calls,
     doc: win.document,
+    select: win.document.getElementById('btn-select'),
     pull: win.document.getElementById('btn-pull'),
     update: win.document.getElementById('btn-update'),
     statusLine: win.document.getElementById('status-line'),
@@ -83,44 +88,103 @@ test('the heading matches the required copy', async () => {
   assert.ok(ui.doc.querySelector('.brand-name'), 'small BYD identity above the title');
 });
 
-test('the repo panel holds the folder picker, then Pull from GitHub above Update', () => {
+test('the repo panel holds the folder picker; Pull and Update sit only below Danger zone', () => {
   const ui = makeRenderer();
-  assert.equal(ui.doc.querySelectorAll('.card').length, 0, 'the heavy dashboard card is gone');
 
   const repoPanel = ui.doc.querySelector('.repo-panel');
   const actions = ui.doc.querySelector('.actions');
+  const danger = ui.doc.getElementById('danger-zone');
   assert.ok(repoPanel, 'subtle glass repository section exists');
   assert.ok(actions, 'lightweight actions stack exists');
+  assert.ok(danger, 'Danger zone exists');
 
-  const buttons = [...ui.doc.querySelectorAll('button')];
-  assert.equal(buttons.length, 3, 'exactly three buttons in the document');
-  assert.equal(buttons.filter((b) => b.closest('.repo-panel')).length, 1, 'folder picker lives in the repo panel');
-  assert.equal(buttons.filter((b) => b.closest('.actions')).length, 2, 'Pull and Update live in the actions stack');
+  assert.equal(ui.doc.querySelectorAll('#btn-pull').length, 1, 'exactly one Pull from GitHub button');
+  assert.equal(ui.doc.querySelectorAll('#btn-update').length, 1, 'exactly one Update button');
+  assert.ok(ui.pull.closest('.actions'), 'Pull lives in the actions stack');
+  assert.ok(ui.update.closest('.actions'), 'Update lives in the actions stack');
+  assert.equal(ui.doc.querySelectorAll('.actions').length, 1);
+  assert.equal(ui.pull.closest('.card'), null, 'no heavy dashboard card wraps the BYD actions');
+  assert.equal(ui.update.closest('.card'), null, 'no heavy dashboard card wraps the BYD actions');
 
-  assert.equal(buttons[0].textContent.trim(), 'Choose BYD repository folder');
-  assert.equal(buttons[1].textContent.trim(), 'Pull from GitHub');
-  assert.equal(buttons[2].textContent.trim(), 'Update');
+  assert.equal(ui.doc.getElementById('btn-select').textContent.trim(), 'Choose BYD repository folder');
+  assert.equal(ui.pull.textContent.trim(), 'Pull from GitHub');
+  assert.equal(ui.update.textContent.trim(), 'Update');
   assert.equal(
-    buttons[1].compareDocumentPosition(buttons[2]) & ui.win.Node.DOCUMENT_POSITION_FOLLOWING,
+    ui.pull.compareDocumentPosition(ui.update) & ui.win.Node.DOCUMENT_POSITION_FOLLOWING,
     ui.win.Node.DOCUMENT_POSITION_FOLLOWING,
     'Update must come directly after Pull from GitHub'
   );
+  assert.equal(
+    danger.compareDocumentPosition(actions) & ui.win.Node.DOCUMENT_POSITION_FOLLOWING,
+    ui.win.Node.DOCUMENT_POSITION_FOLLOWING,
+    'actions (Pull/Update) sit directly below Danger zone'
+  );
 
-  // The selected path is shown compactly inside the repo panel.
   const repoPath = ui.doc.getElementById('repo-path');
   assert.ok(repoPath.closest('.repo-panel'), 'repository path lives in the repo panel');
 });
 
-test('all buttons share the same full-width Apple-style control look', () => {
+test('core action buttons share the Apple-style control look', () => {
   const ui = makeRenderer();
-  const buttons = [...ui.doc.querySelectorAll('button')];
-  assert.deepEqual(
-    buttons.map((b) => [...b.classList].filter((c) => c.startsWith('btn-')).sort()),
-    [['btn-secondary'], ['btn-primary'], ['btn-update']],
-    'secondary picker, primary red pull button and subtle-red update button'
-  );
-  assert.ok(buttons.every((b) => b.classList.contains('btn')), 'all use the shared .btn class');
+  const select = ui.doc.getElementById('btn-select');
+  assert.ok(select.classList.contains('btn') && select.classList.contains('btn-secondary'));
+  assert.ok(ui.pull.classList.contains('btn') && ui.pull.classList.contains('btn-primary'));
+  assert.ok(ui.update.classList.contains('btn') && ui.update.classList.contains('btn-update'));
   assert.match(CSS, /\.btn\s*\{[^}]*width:\s*100%/s, '.btn is full width, so all buttons are equal width');
+});
+
+/* ================================================================== *
+ *  Repository picker + app chrome
+ * ================================================================== */
+
+test('the repository picker runs through the preload bridge and shows the path', async () => {
+  const ui = makeRenderer();
+  await flush();
+
+  ui.select.click();
+  await flush();
+  await flush();
+
+  assert.equal(ui.calls.choose, 1, 'window.api.chooseRepository() invoked');
+  assert.equal(ui.repoPath.textContent, 'Repository: /home/user/BYD');
+  assert.equal(ui.statusText.textContent, 'Repository configured.');
+  assert.ok(ui.statusLine.classList.contains('is-success'));
+});
+
+test('the chrome keeps the BYD actions on the default view and off other views', async () => {
+  const ui = makeRenderer();
+  await flush();
+
+  const app = ui.doc.getElementById('app');
+  assert.equal(app.getAttribute('data-view'), 'settings', 'BYD settings is the landing view');
+  assert.equal(ui.doc.querySelector('[data-view-panel="settings"]').hidden, false);
+
+  ui.doc.querySelector('.rail-item[data-nav="overview"]').click();
+  await flush();
+  assert.equal(app.getAttribute('data-view'), 'overview');
+  assert.equal(ui.doc.querySelector('[data-view-panel="settings"]').hidden, true,
+    'other views are blank canvases, not competing controls');
+
+  ui.doc.querySelector('.notch-btn[data-nav="settings"]').click();
+  await flush();
+  assert.equal(ui.doc.querySelector('[data-view-panel="settings"]').hidden, false);
+  assert.equal(ui.pull.disabled, false, 'Pull is reachable again after navigating back');
+});
+
+test('appearance preferences are applied to the Apple-inspired theme without touching git', async () => {
+  const ui = makeRenderer();
+  await flush();
+
+  ui.doc.getElementById('btn-theme').click();
+  await flush();
+  assert.equal(ui.doc.documentElement.style.getPropertyValue('--bg').trim().toLowerCase(), '#f5f5f7', 'light theme');
+
+  ui.doc.getElementById('btn-theme').click();
+  await flush();
+  assert.equal(ui.doc.documentElement.style.getPropertyValue('--bg').trim().toLowerCase(), '#0b0c0f', 'back to dark');
+
+  assert.equal(ui.calls.pull, 0, 'theming never triggers a pull');
+  assert.equal(ui.calls.restart, 0, 'theming never relaunches the app');
 });
 
 test('the palette matches the Apple-inspired dark design spec', () => {
